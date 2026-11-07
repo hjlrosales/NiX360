@@ -1,0 +1,68 @@
+services:
+  app:
+    build: .
+    image: nix360-media:local
+    restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=256m,mode=1777
+    cpus: 1.5
+    mem_limit: 768m
+    env_file:
+      - .env
+    ports:
+      - "127.0.0.1:${NIX_PUBLISH_PORT:-8787}:8787"
+    volumes:
+      - "${NIX_DATA_HOST:-./data}:/data"
+      - "${MEDIA_PHOTOS:-./media/photos}:/media/photos:ro"
+      - "${MEDIA_VIDEOS:-./media/videos}:/media/videos:ro"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8787/api/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  worker:
+    image: nix360-media:local
+    restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=512m,mode=1777
+    env_file:
+      - .env
+    command: ["node", "server/src/index.ts", "--worker"]
+    depends_on:
+      app:
+        condition: service_healthy
+    # One heavy job at a time; keep the worker inside the roadmap's initial budget.
+    cpus: 1.0
+    mem_limit: 1g
+    volumes:
+      - "${NIX_DATA_HOST:-./data}:/data"
+      - "${MEDIA_PHOTOS:-./media/photos}:/media/photos:ro"
+      - "${MEDIA_VIDEOS:-./media/videos}:/media/videos:ro"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
